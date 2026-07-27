@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:;">
+  <link rel="stylesheet" href="styles.css">
+  <title>脖子活动提醒</title>
+</head>
+<body>
+  <h1>脖子活动提醒</h1>
+  <div class="row">
+    <label>活动时间(分)</label>
+    <input id="activityInput" type="number" min="1" step="1" value="30">
+  </div>
+  <div class="row">
+    <label>休息时间(分)</label>
+    <input id="restInput" type="number" min="2" step="1" value="2">
+  </div>
+  <div class="timer">
+    <div class="phase" id="phase">已停止</div>
+    <div class="clock" id="clock">30:00</div>
+  </div>
+  <div class="controls">
+    <button id="startBtn">开始/继续</button>
+    <button id="pauseBtn" class="secondary">暂停</button>
+    <button id="resetBtn" class="secondary">重置</button>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

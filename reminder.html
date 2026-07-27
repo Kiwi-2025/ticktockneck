@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; media-src 'self' file:; style-src 'self' 'unsafe-inline';">
+  <link rel="stylesheet" href="styles.css">
+  <title>该活动脖子啦</title>
+  <style>
+    body {
+      background: #ffffff;
+      color: #1f2937;
+      align-items: center;
+      gap: 10px;
+      padding: 14px;
+      overflow: hidden;
+    }
+    .title { font-size: 16px; font-weight: 600; text-align: center; }
+    .video { text-align: center; }
+    .video video { max-width: 100%; max-height: 150px; border-radius: 8px; }
+    .countdown { text-align: center; font-size: 14px; color: #6b7280; }
+    .close {
+      width: 100%;
+      padding: 9px 0;
+      font-size: 14px;
+      cursor: pointer;
+      background: #14b8a6;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="title">该活动脖子啦！</div>
+  <div class="video"><video id="video" autoplay muted playsinline></video></div>
+  <div class="countdown">休息剩余 <span id="clock">00:00</span></div>
+  <button id="closeBtn" class="close">知道了</button>
+  <script src="reminder.js"></script>
+</body>
+</html>

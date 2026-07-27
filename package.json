@@ -1,0 +1,32 @@
+{
+  "name": "ticktockneck",
+  "version": "1.0.0",
+  "description": "Neck-activity reminder (pomodoro-style)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.ticktockneck.app",
+    "win": {
+      "signAndEditExecutable": false
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js",
+      "reminder.html",
+      "reminder.js",
+      "styles.css",
+      "lib/**/*",
+      "gif/**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

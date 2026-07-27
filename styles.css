@@ -1,0 +1,26 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: #1f2937;
+  color: #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  overflow: hidden;
+}
+h1 { font-size: 16px; margin: 0; text-align: center; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row label { flex: 0 0 96px; font-size: 13px; }
+.row input { width: 70px; padding: 4px 6px; font-size: 13px; background: #374151; color: #e5e7eb; border: 1px solid #4b5563; border-radius: 4px; }
+.timer { text-align: center; }
+.timer .phase { font-size: 13px; color: #9ca3af; }
+.timer .clock { font-size: 40px; font-weight: 600; letter-spacing: 2px; }
+.controls { display: flex; gap: 8px; justify-content: center; }
+.controls button {
+  flex: 1; padding: 8px 0; font-size: 13px; cursor: pointer;
+  background: #14b8a6; color: #fff; border: none; border-radius: 6px;
+}
+.controls button.secondary { background: #4b5563; }
+.hint { font-size: 11px; color: #6b7280; text-align: center; }
