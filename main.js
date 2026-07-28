@@ -17,13 +17,19 @@ function loadConfig() {
     return {
       activityMinutes: Number(cfg.activityMinutes) || DEFAULTS.activityMinutes,
       restMinutes: Math.max(DEFAULTS.restMinutes, Math.floor(Number(cfg.restMinutes) || DEFAULTS.restMinutes)),
+      autoStart: Boolean(cfg.autoStart),
     };
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, autoStart: false };
   }
 }
-function saveConfig(cfg) {
-  try { fs.writeFileSync(configPath(), JSON.stringify(cfg)); } catch {}
+function saveConfig(patch) {
+  try {
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch {}
+    Object.assign(cfg, patch);
+    fs.writeFileSync(configPath(), JSON.stringify(cfg));
+  } catch {}
 }
 
 let tray = null;
@@ -32,6 +38,7 @@ let reminderWindow = null;
 let quitting = false;
 let tickTimeoutId = null;
 let lastSentClock = null; // last sent mm:ss string, to dedupe broadcasts
+const HIDDEN = process.argv.includes('--hidden');
 
 const timer = new TimerState(loadConfig());
 
@@ -138,7 +145,7 @@ app.whenReady().then(() => {
   tray.setContextMenu(buildTrayMenu());
   tray.on('click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
 
-  createMainWindow();
+  if (!HIDDEN) createMainWindow();
 
   scheduleTick();
 
@@ -165,6 +172,12 @@ app.whenReady().then(() => {
     closeReminderWindow();
     broadcast(true);
     scheduleTick();
+  });
+  ipcMain.handle('settings:getAutostart', () => app.getLoginItemSettings().openAtLogin);
+  ipcMain.on('settings:setAutostart', (_e, enabled) => {
+    app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
+    saveConfig({ autoStart: Boolean(enabled) });
+    broadcast(true);
   });
 });
 
