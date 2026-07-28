@@ -37,7 +37,6 @@ let mainWindow = null;
 let reminderWindow = null;
 let quitting = false;
 let tickTimeoutId = null;
-let lastSentClock = null; // last sent mm:ss string, to dedupe broadcasts
 const HIDDEN = process.argv.includes('--hidden');
 
 const timer = new TimerState(loadConfig());
@@ -50,19 +49,8 @@ function videoUrls() {
     .map(f => url.pathToFileURL(path.join(dir, f)).href);
 }
 
-function fmtClock(ms) {
-  const total = Math.ceil(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-}
-
-function broadcast(force = false) {
+function broadcast() {
   const snap = timer.snapshot;
-  const clock = fmtClock(snap.remainingMs);
-  // Only send when the displayed mm:ss changes, or when forced (user actions).
-  if (!force && clock === lastSentClock) return;
-  lastSentClock = clock;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('timer:tick', snap);
   }
@@ -74,7 +62,8 @@ function broadcast(force = false) {
 function scheduleTick() {
   if (tickTimeoutId) clearTimeout(tickTimeoutId); // cancel any pending tick to avoid double-scheduling
   const { phase, remainingMs } = timer.snapshot;
-  const delay = nextTickDelay(phase, remainingMs);
+  const visible = !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+  const delay = nextTickDelay(phase, remainingMs, visible);
   tickTimeoutId = setTimeout(tick, delay);
 }
 
@@ -124,15 +113,15 @@ function createMainWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   mainWindow.loadFile('index.html');
-  mainWindow.on('minimize', (e) => { e.preventDefault(); mainWindow.hide(); });
+  mainWindow.on('minimize', (e) => { e.preventDefault(); mainWindow.hide(); scheduleTick(); });
   mainWindow.on('close', (e) => {
-    if (!quitting) { e.preventDefault(); mainWindow.hide(); }
+    if (!quitting) { e.preventDefault(); mainWindow.hide(); scheduleTick(); }
   });
 }
 
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
-    { label: '显示窗口', click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } } },
+    { label: '显示窗口', click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); scheduleTick(); } } },
     { type: 'separator' },
     { label: '退出', click: () => { quitting = true; app.quit(); } },
   ]);
@@ -143,18 +132,18 @@ app.whenReady().then(() => {
   tray = new Tray(icon);
   tray.setToolTip('脖子活动提醒');
   tray.setContextMenu(buildTrayMenu());
-  tray.on('click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
+  tray.on('click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); scheduleTick(); } });
 
   if (!HIDDEN) createMainWindow();
 
   scheduleTick();
 
-  ipcMain.on('timer:start', () => { timer.start(Date.now()); broadcast(true); scheduleTick(); });
-  ipcMain.on('timer:pause', () => { timer.pause(Date.now()); broadcast(true); });
+  ipcMain.on('timer:start', () => { timer.start(Date.now()); broadcast(); scheduleTick(); });
+  ipcMain.on('timer:pause', () => { timer.pause(Date.now()); broadcast(); });
   ipcMain.on('timer:reset', () => {
     timer.reset(Date.now());
     closeReminderWindow();
-    broadcast(true);
+    broadcast();
     scheduleTick();
   });
   ipcMain.on('timer:setTimes', (_e, t) => {
@@ -162,7 +151,7 @@ app.whenReady().then(() => {
     const restMinutes = Math.max(DEFAULTS.restMinutes, Math.floor(Number(t.restMinutes) || DEFAULTS.restMinutes));
     timer.setTimes({ activityMinutes, restMinutes });
     saveConfig({ activityMinutes, restMinutes });
-    broadcast(true);
+    broadcast();
     scheduleTick();
   });
   ipcMain.handle('timer:getState', () => timer.snapshot);
@@ -170,14 +159,14 @@ app.whenReady().then(() => {
   ipcMain.on('reminder:close', () => {
     timer.skipRest(Date.now());
     closeReminderWindow();
-    broadcast(true);
+    broadcast();
     scheduleTick();
   });
   ipcMain.handle('settings:getAutostart', () => app.getLoginItemSettings().openAtLogin);
   ipcMain.on('settings:setAutostart', (_e, enabled) => {
     app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
     saveConfig({ autoStart: Boolean(enabled) });
-    broadcast(true);
+    broadcast();
   });
 });
 
