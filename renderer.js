@@ -33,3 +33,7 @@ activityInput.addEventListener('change', () =>
   window.api.setTimes({ activityMinutes: Number(activityInput.value), restMinutes: Number(restInput.value) }));
 restInput.addEventListener('change', () =>
   window.api.setTimes({ activityMinutes: Number(activityInput.value), restMinutes: Number(restInput.value) }));
+
+const autoStartInput = document.getElementById('autoStartInput');
+window.api.getAutostart().then((on) => { autoStartInput.checked = on; });
+autoStartInput.addEventListener('change', () => window.api.setAutostart(autoStartInput.checked));

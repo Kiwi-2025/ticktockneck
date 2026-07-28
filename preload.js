@@ -9,4 +9,6 @@ contextBridge.exposeInMainWorld('api', {
   getVideos: () => ipcRenderer.invoke('reminder:videos'),
   onTick: (cb) => ipcRenderer.on('timer:tick', (_e, snapshot) => cb(snapshot)),
   closeReminder: () => ipcRenderer.send('reminder:close'),
+  getAutostart: () => ipcRenderer.invoke('settings:getAutostart'),
+  setAutostart: (enabled) => ipcRenderer.send('settings:setAutostart', enabled),
 });
