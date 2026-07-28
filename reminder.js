@@ -28,3 +28,11 @@ window.api.onTick((snap) => {
 });
 
 document.getElementById('closeBtn').addEventListener('click', () => window.api.closeReminder());
+
+window.addEventListener('beforeunload', () => {
+  try {
+    videoEl.pause();
+    videoEl.src = '';
+    videoEl.load();
+  } catch {}
+});
