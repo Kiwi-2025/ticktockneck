@@ -4,6 +4,7 @@ const fs = require('fs');
 const url = require('url');
 const { TimerState } = require('./lib/timer.js');
 const { createIconBuffer } = require('./lib/icon.js');
+const { nextTickDelay } = require('./lib/tick-schedule.js');
 
 const DEFAULTS = { activityMinutes: 30, restMinutes: 2 };
 
@@ -29,7 +30,8 @@ let tray = null;
 let mainWindow = null;
 let reminderWindow = null;
 let quitting = false;
-let intervalId = null;
+let tickTimeoutId = null;
+let lastSentClock = null; // last sent mm:ss string, to dedupe broadcasts
 
 const timer = new TimerState(loadConfig());
 
@@ -41,14 +43,40 @@ function videoUrls() {
     .map(f => url.pathToFileURL(path.join(dir, f)).href);
 }
 
-function broadcast() {
+function fmtClock(ms) {
+  const total = Math.ceil(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function broadcast(force = false) {
   const snap = timer.snapshot;
+  const clock = fmtClock(snap.remainingMs);
+  // Only send when the displayed mm:ss changes, or when forced (user actions).
+  if (!force && clock === lastSentClock) return;
+  lastSentClock = clock;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('timer:tick', snap);
   }
   if (reminderWindow && !reminderWindow.isDestroyed()) {
     reminderWindow.webContents.send('timer:tick', snap);
   }
+}
+
+function scheduleTick() {
+  if (tickTimeoutId) clearTimeout(tickTimeoutId); // cancel any pending tick to avoid double-scheduling
+  const { phase, remainingMs } = timer.snapshot;
+  const delay = nextTickDelay(phase, remainingMs);
+  tickTimeoutId = setTimeout(tick, delay);
+}
+
+function tick() {
+  const { event } = timer.tick(Date.now());
+  if (event === 'rest-start') createReminderWindow();
+  if (event === 'rest-end') closeReminderWindow();
+  broadcast();
+  scheduleTick();
 }
 
 function createReminderWindow() {
@@ -103,13 +131,6 @@ function buildTrayMenu() {
   ]);
 }
 
-function tick() {
-  const { event } = timer.tick(Date.now());
-  if (event === 'rest-start') createReminderWindow();
-  if (event === 'rest-end') closeReminderWindow();
-  broadcast();
-}
-
 app.whenReady().then(() => {
   const icon = nativeImage.createFromBuffer(createIconBuffer());
   tray = new Tray(icon);
@@ -119,33 +140,36 @@ app.whenReady().then(() => {
 
   createMainWindow();
 
-  intervalId = setInterval(tick, 1000);
+  scheduleTick();
 
-  ipcMain.on('timer:start', () => { timer.start(Date.now()); broadcast(); });
-  ipcMain.on('timer:pause', () => { timer.pause(Date.now()); broadcast(); });
+  ipcMain.on('timer:start', () => { timer.start(Date.now()); broadcast(true); scheduleTick(); });
+  ipcMain.on('timer:pause', () => { timer.pause(Date.now()); broadcast(true); });
   ipcMain.on('timer:reset', () => {
     timer.reset(Date.now());
     closeReminderWindow();
-    broadcast();
+    broadcast(true);
+    scheduleTick();
   });
   ipcMain.on('timer:setTimes', (_e, t) => {
     const activityMinutes = Math.max(1, Math.floor(Number(t.activityMinutes) || DEFAULTS.activityMinutes));
     const restMinutes = Math.max(DEFAULTS.restMinutes, Math.floor(Number(t.restMinutes) || DEFAULTS.restMinutes));
     timer.setTimes({ activityMinutes, restMinutes });
     saveConfig({ activityMinutes, restMinutes });
-    broadcast();
+    broadcast(true);
+    scheduleTick();
   });
   ipcMain.handle('timer:getState', () => timer.snapshot);
   ipcMain.handle('reminder:videos', () => videoUrls());
   ipcMain.on('reminder:close', () => {
     timer.skipRest(Date.now());
     closeReminderWindow();
-    broadcast();
+    broadcast(true);
+    scheduleTick();
   });
 });
 
 app.on('window-all-closed', (e) => { e.preventDefault(); }); // keep running in tray
 
 app.on('before-quit', () => {
-  if (intervalId) clearInterval(intervalId);
+  if (tickTimeoutId) clearTimeout(tickTimeoutId);
 });
