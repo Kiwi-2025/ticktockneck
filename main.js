@@ -118,7 +118,7 @@ function createMainWindow() {
   const icon = nativeImage.createFromBuffer(createIconBuffer());
   mainWindow = new BrowserWindow({
     width: 360,
-    height: 320,
+    height: 360,
     resizable: false,
     icon,
     webPreferences: { preload: path.join(__dirname, 'preload.js') },

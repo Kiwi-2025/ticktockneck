@@ -23,4 +23,5 @@ h1 { font-size: 16px; margin: 0; text-align: center; }
   background: #14b8a6; color: #fff; border: none; border-radius: 6px;
 }
 .controls button.secondary { background: #4b5563; }
+.checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: #14b8a6; }
 .hint { font-size: 11px; color: #6b7280; text-align: center; }
