@@ -119,9 +119,18 @@ function createMainWindow() {
   });
 }
 
+// Brings the main window to the front, creating it on demand. Needed because
+// --hidden startup (e.g. autostart) skips createMainWindow(), leaving it null.
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
+  mainWindow.show();
+  mainWindow.focus();
+  scheduleTick();
+}
+
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
-    { label: '显示窗口', click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); scheduleTick(); } } },
+    { label: '显示窗口', click: () => showMainWindow() },
     { type: 'separator' },
     { label: '退出', click: () => { quitting = true; app.quit(); } },
   ]);
@@ -132,7 +141,7 @@ app.whenReady().then(() => {
   tray = new Tray(icon);
   tray.setToolTip('脖子活动提醒');
   tray.setContextMenu(buildTrayMenu());
-  tray.on('click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); scheduleTick(); } });
+  tray.on('click', () => showMainWindow());
 
   if (!HIDDEN) createMainWindow();
 
