@@ -37,9 +37,8 @@ let mainWindow = null;
 let reminderWindow = null;
 let quitting = false;
 let tickTimeoutId = null;
-const HIDDEN = process.argv.includes('--hidden');
-
-const timer = new TimerState(loadConfig());
+const config = loadConfig();
+const timer = new TimerState(config);
 
 function videoUrls() {
   const dir = path.join(__dirname, 'gif');
@@ -119,8 +118,8 @@ function createMainWindow() {
   });
 }
 
-// Brings the main window to the front, creating it on demand. Needed because
-// --hidden startup (e.g. autostart) skips createMainWindow(), leaving it null.
+// Brings the main window to the front, lazily creating it if it was never
+// created or has been destroyed. Used by the tray click / context menu handlers.
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
   mainWindow.show();
@@ -143,7 +142,16 @@ app.whenReady().then(() => {
   tray.setContextMenu(buildTrayMenu());
   tray.on('click', () => showMainWindow());
 
-  if (!HIDDEN) createMainWindow();
+  // 迁移老版本残留的自启条目：旧版注册时带了 args: ['--hidden']，会导致开机后主窗口不显示。
+  // 先按旧参数精确移除该条目，再按用户当前意愿干净地重新注册（无 args）。
+  const launchItems = app.getLoginItemSettings().launchItems || [];
+  const hasStaleHidden = launchItems.some((it) => (it.args || []).includes('--hidden'));
+  if (hasStaleHidden) {
+    app.setLoginItemSettings({ openAtLogin: false, args: ['--hidden'] });
+    if (config.autoStart) app.setLoginItemSettings({ openAtLogin: true });
+  }
+
+  createMainWindow();
 
   scheduleTick();
 
@@ -173,7 +181,7 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:getAutostart', () => app.getLoginItemSettings().openAtLogin);
   ipcMain.on('settings:setAutostart', (_e, enabled) => {
-    app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
+    app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
     saveConfig({ autoStart: Boolean(enabled) });
     broadcast();
   });
