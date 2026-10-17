@@ -119,7 +119,8 @@ npm run dist
 |------|------|
 | `main.js` | 主进程：窗口、托盘、计时、IPC |
 | `lib/timer.js` | 计时状态机（活动 / 休息循环） |
-| `lib/icon.js` | 运行时生成托盘 / 窗口图标 |
+| `lib/icon.js` | 图标缺失时兜底生成纯色 PNG 图标 |
+| `logo.jpg` | 托盘 / 窗口图标素材（自动裁剪成方形时钟图案） |
 | `preload.js` | 上下文隔离桥接（`window.api`） |
 | `index.html` / `renderer.js` / `styles.css` | 主控制窗口 |
 | `reminder.html` / `reminder.js` | 休息弹窗（视频循环播放） |

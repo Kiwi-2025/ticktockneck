@@ -7,6 +7,61 @@ const { createIconBuffer } = require('./lib/icon.js');
 const { nextTickDelay } = require('./lib/tick-schedule.js');
 
 const DEFAULTS = { activityMinutes: 30, restMinutes: 2 };
+const LOGO_PATH = path.join(__dirname, 'logo.jpg');
+
+// logo.jpg is a large picture: the clock artwork sits in the middle and a
+// light-grey watermark band runs along the bottom edge. This scans for the
+// dark clock strokes only (the watermark is lighter than the threshold), so
+// the tray / window icon can be cropped to a tight square around the clock.
+function clockBounds(bitmap, width, height) {
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4; // BGRA
+      const lum = (bitmap[o] + bitmap[o + 1] + bitmap[o + 2]) / 3;
+      if (lum >= 100) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+// Builds an icon of the requested pixel size from logo.jpg. Returns null when
+// the logo file is missing or unreadable, so callers can fall back.
+// The bytes are read with fs (asar-aware) and decoded from a buffer, so this
+// also works when logo.jpg is packed inside app.asar.
+function createLogoIcon(size) {
+  let logo;
+  try {
+    logo = nativeImage.createFromBuffer(fs.readFileSync(LOGO_PATH));
+  } catch {
+    return null;
+  }
+  if (logo.isEmpty()) return null;
+  const { width, height } = logo.getSize();
+  const bounds = clockBounds(logo.toBitmap(), width, height);
+  if (!bounds) return null;
+
+  const clockW = bounds.maxX - bounds.minX + 1;
+  const clockH = bounds.maxY - bounds.minY + 1;
+  const side = Math.min(Math.round(Math.max(clockW, clockH) * 1.08), Math.min(width, height));
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cy = (bounds.minY + bounds.maxY) / 2;
+  const x = Math.round(Math.min(Math.max(cx - side / 2, 0), width - side));
+  const y = Math.round(Math.min(Math.max(cy - side / 2, 0), height - side));
+
+  return logo.crop({ x, y, width: side, height: side })
+    .resize({ width: size, height: size, quality: 'best' });
+}
+
+// App / tray icon: the logo when available, otherwise the generated teal square.
+function createIcon(size) {
+  return createLogoIcon(size) || nativeImage.createFromBuffer(createIconBuffer());
+}
 
 function configPath() {
   return path.join(app.getPath('userData'), 'config.json');
@@ -103,12 +158,11 @@ function closeReminderWindow() {
 }
 
 function createMainWindow() {
-  const icon = nativeImage.createFromBuffer(createIconBuffer());
   mainWindow = new BrowserWindow({
     width: 360,
     height: 360,
     resizable: false,
-    icon,
+    icon: createIcon(256),
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   mainWindow.loadFile('index.html');
@@ -136,8 +190,9 @@ function buildTrayMenu() {
 }
 
 app.whenReady().then(() => {
-  const icon = nativeImage.createFromBuffer(createIconBuffer());
-  tray = new Tray(icon);
+  // Windows tray icons are small; 32px keeps the clock strokes readable on
+  // high-DPI displays while Windows downscales for the classic 16px tray.
+  tray = new Tray(createIcon(32));
   tray.setToolTip('脖子活动提醒');
   tray.setContextMenu(buildTrayMenu());
   tray.on('click', () => showMainWindow());
