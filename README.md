@@ -84,7 +84,7 @@ TickTockNeck 把"定时 + 做操"自动化，免去你自觉性不足的问题�
 
 ### 方式一：直接使用打包版
 
-在 [Releases](../../releases) 页面下载 `ticktockneck-1.0.0.exe`（Windows 便携版，免安装，双击即用）。
+在 [Releases](../../releases) 页面下载最新的 `ticktockneck 1.1.2.exe`（Windows 便携版，免安装，双击即用）。
 
 ### 方式二：自行构建
 
@@ -105,6 +105,9 @@ npm run dist
 ```
 
 打包产物位于 `dist/` 目录下。
+
+关于图标：`logo.jpg` 是运行时图标素材，启动时自动裁剪成方形时钟图案（托盘 32px、主窗口 256px）；`build/icon.png`（256px，由 `logo.jpg` 同样裁剪而来）在打包时嵌入 exe，作为文件图标。首次 `npm run dist` 需联网下载 electron-builder 的 `winCodeSign` 工具链（用于写入 exe 图标），国内网络可加镜像：
+`$env:ELECTRON_BUILDER_BINARIES_MIRROR="https://registry.npmmirror.com/-/binary/electron-builder-binaries/"`
 
 ---
 
