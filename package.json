@@ -11,7 +11,7 @@
   "build": {
     "appId": "com.ticktockneck.app",
     "win": {
-      "signAndEditExecutable": false
+      "icon": "build/icon.png"
     },
     "files": [
       "main.js",
