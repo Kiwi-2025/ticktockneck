@@ -113,3 +113,29 @@ test('tick while not running changes nothing', () => {
   assert.strictEqual(r.event, null);
   assert.strictEqual(t.snapshot.phase, 'idle');
 });
+
+test('snapshotAt recomputes remaining time between ticks', () => {
+  const t = new TimerState({ activityMinutes: 30, restMinutes: 1 });
+  t.start(1000);
+  t.tick(1000 + 10 * MIN); // 20 min left
+  // snapshot 里的 remainingMs 只在 tick() 时刷新，这里读到的仍是旧值
+  assert.strictEqual(t.snapshot.remainingMs, 20 * MIN);
+  // snapshotAt 按给定时刻重算
+  assert.strictEqual(t.snapshotAt(1000 + 13 * MIN).remainingMs, 17 * MIN);
+  assert.strictEqual(t.snapshotAt(1000 + 10 * MIN).remainingMs, 20 * MIN);
+});
+
+test('snapshotAt never goes negative past the end of a phase', () => {
+  const t = new TimerState({ activityMinutes: 30, restMinutes: 1 });
+  t.start(1000);
+  assert.strictEqual(t.snapshotAt(1000 + 99 * MIN).remainingMs, 0);
+});
+
+test('snapshotAt keeps the frozen value while paused', () => {
+  const t = new TimerState({ activityMinutes: 30, restMinutes: 1 });
+  t.start(1000);
+  t.tick(1000 + 10 * MIN); // 20 min left
+  t.pause(1000 + 10 * MIN);
+  assert.strictEqual(t.snapshotAt(1000 + 500 * MIN).remainingMs, 20 * MIN);
+});
+

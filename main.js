@@ -9,6 +9,11 @@ const { nextTickDelay } = require('./lib/tick-schedule.js');
 const DEFAULTS = { activityMinutes: 30, restMinutes: 2 };
 const LOGO_PATH = path.join(__dirname, 'logo.jpg');
 
+// 窗口不需要原生菜单栏（托盘用的是独立的 Tray contextMenu）。不提前清掉的
+// 话，Electron 会为每个 BrowserWindow 搭建一套默认菜单栏，既拖慢启动，
+// 又在窗口顶部多出一条用不上的 File/Edit/View 菜单。必须在 app ready 前调用。
+Menu.setApplicationMenu(null);
+
 // logo.jpg is a large picture: the clock artwork sits in the middle and a
 // light-grey watermark band runs along the bottom edge. This scans for the
 // dark clock strokes only (the watermark is lighter than the threshold), so
@@ -92,6 +97,10 @@ let mainWindow = null;
 let reminderWindow = null;
 let quitting = false;
 let tickTimeoutId = null;
+// 主窗口当前是否可见。用 show/hide 事件维护，而不是每次问 isVisible()：
+// show/hide 事件的时序更确定，scheduleTick 不会在窗口刚显示的瞬间读到
+// 过期的可见性，从而把 1 秒的倒计时刷新退化成 60 秒一次。
+let mainWindowVisible = false;
 const config = loadConfig();
 const timer = new TimerState(config);
 
@@ -104,8 +113,12 @@ function videoUrls() {
 }
 
 function broadcast() {
-  const snap = timer.snapshot;
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  // 用 snapshotAt 按当前时刻重算剩余时间：两次 tick 之间 snapshot 里的
+  // remainingMs 是旧值，窗口隐藏时 tick 是 60 秒一次，直接推就会推陈旧数据。
+  const snap = timer.snapshotAt(Date.now());
+  // 只推给可见的窗口：隐藏的主窗口收到 IPC 也会被唤醒，白做一次 DOM 更新。
+  // 窗口重新显示时由 'show' 事件补发一次，状态不会丢。
+  if (mainWindowVisible && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('timer:tick', snap);
   }
   if (reminderWindow && !reminderWindow.isDestroyed()) {
@@ -114,10 +127,12 @@ function broadcast() {
 }
 
 function scheduleTick() {
-  if (tickTimeoutId) clearTimeout(tickTimeoutId); // cancel any pending tick to avoid double-scheduling
-  const { phase, remainingMs } = timer.snapshot;
-  const visible = !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
-  const delay = nextTickDelay(phase, remainingMs, visible);
+  if (tickTimeoutId) { clearTimeout(tickTimeoutId); tickTimeoutId = null; }
+  // 计时器没在跑的时候状态不会自行变化，挂定时器只是白白唤醒进程。
+  // 状态真正变化的入口（开始/重置/改时长/跳过休息）都会重新调用 scheduleTick。
+  if (!timer.running) return;
+  const { phase, remainingMs } = timer.snapshotAt(Date.now());
+  const delay = nextTickDelay(phase, remainingMs, mainWindowVisible);
   tickTimeoutId = setTimeout(tick, delay);
 }
 
@@ -134,7 +149,7 @@ function createReminderWindow() {
   const display = screen.getPrimaryDisplay();
   const { width } = display.workAreaSize;
   const W = 300, H = 280;
-  reminderWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     x: width - W - 20,
     y: 20,
     width: W,
@@ -145,11 +160,15 @@ function createReminderWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
+    backgroundColor: '#ffffff',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
-  reminderWindow.loadFile('reminder.html');
-  reminderWindow.once('ready-to-show', () => reminderWindow.show());
-  reminderWindow.on('closed', () => { reminderWindow = null; });
+  reminderWindow = win;
+  win.loadFile(path.join(__dirname, 'reminder.html'));
+  win.once('ready-to-show', () => win.show());
+  // 弹窗一露面就把当前剩余时间推过去，避免倒计时从 00:00 空跑一秒。
+  win.on('show', () => broadcast());
+  win.on('closed', () => { if (reminderWindow === win) reminderWindow = null; });
 }
 
 function closeReminderWindow() {
@@ -158,27 +177,53 @@ function closeReminderWindow() {
 }
 
 function createMainWindow() {
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 360,
     height: 360,
     resizable: false,
+    show: false,              // 等首帧画好再显示，避免白闪
+    backgroundColor: '#1f2937', // 与 styles.css 的 body 底色一致
     icon: createIcon(256),
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
-  mainWindow.loadFile('index.html');
-  mainWindow.on('minimize', (e) => { e.preventDefault(); mainWindow.hide(); scheduleTick(); });
-  mainWindow.on('close', (e) => {
-    if (!quitting) { e.preventDefault(); mainWindow.hide(); scheduleTick(); }
+  mainWindow = win;
+  win.loadFile(path.join(__dirname, 'index.html'));
+  win.once('ready-to-show', () => {
+    if (win.isDestroyed()) return;
+    win.show();
+  });
+  // 兜底：页面加载失败时 ready-to-show 不会触发，窗口会一直隐形。
+  win.webContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
+    if (!isMainFrame) return;
+    console.error('main window failed to load:', code, desc);
+    if (!win.isDestroyed()) win.show();
+  });
+  // 重新显示时补发一次快照：窗口隐藏期间不推 IPC，重新打开不能是旧值。
+  win.on('show', () => {
+    mainWindowVisible = true;
+    win.focus();
+    broadcast();
+    scheduleTick();
+  });
+  win.on('hide', () => {
+    mainWindowVisible = false;
+    scheduleTick();
+  });
+  win.on('minimize', (e) => { e.preventDefault(); win.hide(); });
+  win.on('close', (e) => {
+    if (!quitting) { e.preventDefault(); win.hide(); }
   });
 }
 
 // Brings the main window to the front, lazily creating it if it was never
 // created or has been destroyed. Used by the tray click / context menu handlers.
 function showMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
-  mainWindow.show();
-  mainWindow.focus();
-  scheduleTick();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow(); // 新建的窗口由 'ready-to-show' 负责显示
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
 }
 
 function buildTrayMenu() {
@@ -211,7 +256,8 @@ app.whenReady().then(() => {
   scheduleTick();
 
   ipcMain.on('timer:start', () => { timer.start(Date.now()); broadcast(); scheduleTick(); });
-  ipcMain.on('timer:pause', () => { timer.pause(Date.now()); broadcast(); });
+  // 暂停后计时器不再运行，scheduleTick 会把挂起的定时器收掉，不再空转唤醒。
+  ipcMain.on('timer:pause', () => { timer.pause(Date.now()); broadcast(); scheduleTick(); });
   ipcMain.on('timer:reset', () => {
     timer.reset(Date.now());
     closeReminderWindow();
@@ -226,7 +272,7 @@ app.whenReady().then(() => {
     broadcast();
     scheduleTick();
   });
-  ipcMain.handle('timer:getState', () => timer.snapshot);
+  ipcMain.handle('timer:getState', () => timer.snapshotAt(Date.now()));
   ipcMain.handle('reminder:videos', () => videoUrls());
   ipcMain.on('reminder:close', () => {
     timer.skipRest(Date.now());

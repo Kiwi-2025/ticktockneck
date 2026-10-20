@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
+    "smoke": "electron scripts/smoke.js",
     "dist": "electron-builder --win portable"
   },
   "build": {

@@ -97,8 +97,11 @@ npm install
 # 开发运行
 npm start
 
-# 运行测试
+# 运行单元测试
 npm test
+
+# 运行端到端冒烟测试（会真的弹出窗口，约需 90 秒）
+npm run smoke
 
 # 打包为 Windows 便携 exe（输出到 dist/）
 npm run dist
@@ -114,7 +117,7 @@ npm run dist
 ## 五、技术栈与结构
 
 - **Electron** 桌面框架
-- **原生 Node.js 测试**（`node --test`）
+- **原生 Node.js 测试**（`node --test`）+ 端到端冒烟测试（`npm run smoke`）
 
 关键文件：
 
@@ -122,6 +125,7 @@ npm run dist
 |------|------|
 | `main.js` | 主进程：窗口、托盘、计时、IPC |
 | `lib/timer.js` | 计时状态机（活动 / 休息循环） |
+| `lib/tick-schedule.js` | 纯函数：按阶段 / 剩余时间 / 窗口可见性算下一次 tick 的间隔 |
 | `lib/icon.js` | 图标缺失时兜底生成纯色 PNG 图标 |
 | `logo.jpg` | 托盘 / 窗口图标素材（自动裁剪成方形时钟图案） |
 | `build/icon.png` | exe 文件图标素材（256px，打包时嵌入 exe） |
@@ -129,6 +133,8 @@ npm run dist
 | `index.html` / `renderer.js` / `styles.css` | 主控制窗口 |
 | `reminder.html` / `reminder.js` | 休息弹窗（视频循环播放） |
 | `gif/` | 5 段活动操演示视频（`action-1..5.mp4`） |
+| `test/` | 单元测试（`node --test`） |
+| `scripts/smoke.js` | 端到端冒烟测试（`npm run smoke`，会真的弹出窗口） |
 
 ---
 

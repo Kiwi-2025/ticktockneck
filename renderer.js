@@ -15,12 +15,20 @@ function fmt(ms) {
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
+// 正在被编辑的输入框不能被定时刷新覆盖——否则用户刚敲进去的字符会在
+// change 事件触发前被冲掉，框里根本打不进字。值没变也不必写 DOM。
+function setInputValue(el, value) {
+  if (el === document.activeElement) return;
+  const next = String(value);
+  if (el.value !== next) el.value = next;
+}
+
 function render(snap) {
   if (!snap) return;
   phaseEl.textContent = PHASE_LABEL[snap.phase] || snap.phase;
   clockEl.textContent = fmt(snap.remainingMs);
-  activityInput.value = snap.activityMinutes;
-  restInput.value = snap.restMinutes;
+  setInputValue(activityInput, snap.activityMinutes);
+  setInputValue(restInput, snap.restMinutes);
 }
 
 window.api.onTick(render);
