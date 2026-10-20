@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('api', {
   closeReminder: () => ipcRenderer.send('reminder:close'),
   getAutostart: () => ipcRenderer.invoke('settings:getAutostart'),
   setAutostart: (enabled) => ipcRenderer.send('settings:setAutostart', enabled),
+  getSilentStart: () => ipcRenderer.invoke('settings:getSilentStart'),
+  setSilentStart: (enabled) => ipcRenderer.send('settings:setSilentStart', enabled),
 });

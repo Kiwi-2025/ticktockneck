@@ -1,13 +1,17 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const url = require('url');
 const { TimerState } = require('./lib/timer.js');
 const { createIconBuffer } = require('./lib/icon.js');
 const { nextTickDelay } = require('./lib/tick-schedule.js');
+const { loginItemArgs } = require('./lib/login-item.js');
 
-const DEFAULTS = { activityMinutes: 30, restMinutes: 2 };
+const DEFAULTS = { activityMinutes: 30, restMinutes: 2, autoStart: false, silentStart: false };
 const LOGO_PATH = path.join(__dirname, 'logo.jpg');
+// 开机自启选择"仅驻留托盘"时，系统登录项会带上这个参数：启动后只建托盘，
+// 不建主窗口。
+const HIDDEN = process.argv.includes('--hidden');
 
 // 窗口不需要原生菜单栏（托盘用的是独立的 Tray contextMenu）。不提前清掉的
 // 话，Electron 会为每个 BrowserWindow 搭建一套默认菜单栏，既拖慢启动，
@@ -78,17 +82,19 @@ function loadConfig() {
       activityMinutes: Number(cfg.activityMinutes) || DEFAULTS.activityMinutes,
       restMinutes: Math.max(DEFAULTS.restMinutes, Math.floor(Number(cfg.restMinutes) || DEFAULTS.restMinutes)),
       autoStart: Boolean(cfg.autoStart),
+      silentStart: Boolean(cfg.silentStart),
     };
   } catch {
-    return { ...DEFAULTS, autoStart: false };
+    return { ...DEFAULTS };
   }
 }
+// 以内存里的 config 为基准做合并写：config 在启动时已经完整读过一次，
+// 不必每次保存都再读一遍磁盘。保留同步写——文件只有一百来字节，
+// 异步反而可能在退出瞬间丢掉最后一次修改。
 function saveConfig(patch) {
   try {
-    let cfg = {};
-    try { cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch {}
-    Object.assign(cfg, patch);
-    fs.writeFileSync(configPath(), JSON.stringify(cfg));
+    Object.assign(config, patch);
+    fs.writeFileSync(configPath(), JSON.stringify(config));
   } catch {}
 }
 
@@ -104,12 +110,31 @@ let mainWindowVisible = false;
 const config = loadConfig();
 const timer = new TimerState(config);
 
+// 视频列表在运行期不会变，读一次就够了——省掉每次弹窗时的一次磁盘扫描。
+let videoUrlCache = null;
 function videoUrls() {
-  const dir = path.join(__dirname, 'gif');
-  return fs.readdirSync(dir)
-    .filter(f => f.toLowerCase().endsWith('.mp4'))
-    .sort()
-    .map(f => url.pathToFileURL(path.join(dir, f)).href);
+  if (videoUrlCache) return videoUrlCache;
+  try {
+    const dir = path.join(__dirname, 'gif');
+    videoUrlCache = fs.readdirSync(dir)
+      .filter(f => f.toLowerCase().endsWith('.mp4'))
+      .sort()
+      .map(f => url.pathToFileURL(path.join(dir, f)).href);
+  } catch {
+    videoUrlCache = [];
+  }
+  return videoUrlCache;
+}
+
+// 把当前的自启设置写进系统登录项。silentStart 决定是否带 --hidden
+// （开机只驻留托盘、不弹主窗口）。
+function applyLoginItem() {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(config.autoStart),
+      args: loginItemArgs(config),
+    });
+  } catch {}
 }
 
 function broadcast() {
@@ -161,7 +186,10 @@ function createReminderWindow() {
     skipTaskbar: true,
     show: false,
     backgroundColor: '#ffffff',
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      spellcheck: false,
+    },
   });
   reminderWindow = win;
   win.loadFile(path.join(__dirname, 'reminder.html'));
@@ -176,6 +204,16 @@ function closeReminderWindow() {
   reminderWindow = null;
 }
 
+// 主窗口隐藏后直接销毁，而不是留着看不见的渲染进程常驻——实测一个隐藏的
+// BrowserWindow 仍然占着约 62MB。计时状态在主进程里，窗口随时可以重建。
+function destroyMainWindow() {
+  const win = mainWindow;
+  mainWindow = null;
+  mainWindowVisible = false;
+  if (win && !win.isDestroyed()) win.destroy(); // destroy 不会触发 'close'，只有 'closed'
+  scheduleTick();
+}
+
 function createMainWindow() {
   const win = new BrowserWindow({
     width: 360,
@@ -184,13 +222,17 @@ function createMainWindow() {
     show: false,              // 等首帧画好再显示，避免白闪
     backgroundColor: '#1f2937', // 与 styles.css 的 body 底色一致
     icon: createIcon(256),
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      spellcheck: false,      // 界面只有两个数字输入框，拼写检查纯属浪费
+    },
   });
   mainWindow = win;
   win.loadFile(path.join(__dirname, 'index.html'));
   win.once('ready-to-show', () => {
     if (win.isDestroyed()) return;
     win.show();
+    win.focus();
   });
   // 兜底：页面加载失败时 ready-to-show 不会触发，窗口会一直隐形。
   win.webContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
@@ -201,7 +243,6 @@ function createMainWindow() {
   // 重新显示时补发一次快照：窗口隐藏期间不推 IPC，重新打开不能是旧值。
   win.on('show', () => {
     mainWindowVisible = true;
-    win.focus();
     broadcast();
     scheduleTick();
   });
@@ -209,9 +250,13 @@ function createMainWindow() {
     mainWindowVisible = false;
     scheduleTick();
   });
-  win.on('minimize', (e) => { e.preventDefault(); win.hide(); });
+  win.on('minimize', (e) => { e.preventDefault(); destroyMainWindow(); });
   win.on('close', (e) => {
-    if (!quitting) { e.preventDefault(); win.hide(); }
+    // 放在下一个事件循环再销毁：close 事件还在处理中，destroy() 属于重入。
+    if (!quitting) { e.preventDefault(); setImmediate(destroyMainWindow); }
+  });
+  win.on('closed', () => {
+    if (mainWindow === win) { mainWindow = null; mainWindowVisible = false; }
   });
 }
 
@@ -243,17 +288,30 @@ app.whenReady().then(() => {
   tray.on('click', () => showMainWindow());
 
   // 迁移老版本残留的自启条目：旧版注册时带了 args: ['--hidden']，会导致开机后主窗口不显示。
-  // 先按旧参数精确移除该条目，再按用户当前意愿干净地重新注册（无 args）。
+  // 先按旧参数精确移除该条目；如果是用户自己选了"仅驻留托盘"（silentStart），
+  // 那 --hidden 是有意为之的，保留不动。
   const launchItems = app.getLoginItemSettings().launchItems || [];
-  const hasStaleHidden = launchItems.some((it) => (it.args || []).includes('--hidden'));
-  if (hasStaleHidden) {
+  const hasHiddenArg = launchItems.some((it) => (it.args || []).includes('--hidden'));
+  const intentionalHidden = Boolean(config.autoStart && config.silentStart);
+  if (hasHiddenArg && !intentionalHidden) {
     app.setLoginItemSettings({ openAtLogin: false, args: ['--hidden'] });
     if (config.autoStart) app.setLoginItemSettings({ openAtLogin: true });
   }
 
-  createMainWindow();
+  // 开机自启选了"仅驻留托盘"：只建托盘，不建主窗口，点托盘图标时再懒创建。
+  if (!HIDDEN) createMainWindow();
 
   scheduleTick();
+
+  // 睡眠期间挂起的定时器醒来后不一定准时触发，这里立刻补一次 tick，
+  // 让计时状态和当前时刻对齐。
+  powerMonitor.on('resume', () => {
+    const { event } = timer.tick(Date.now());
+    if (event === 'rest-start') createReminderWindow();
+    if (event === 'rest-end') closeReminderWindow();
+    broadcast();
+    scheduleTick();
+  });
 
   ipcMain.on('timer:start', () => { timer.start(Date.now()); broadcast(); scheduleTick(); });
   // 暂停后计时器不再运行，scheduleTick 会把挂起的定时器收掉，不再空转唤醒。
@@ -282,11 +340,20 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:getAutostart', () => app.getLoginItemSettings().openAtLogin);
   ipcMain.on('settings:setAutostart', (_e, enabled) => {
-    app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
-    saveConfig({ autoStart: Boolean(enabled) });
-    broadcast();
+    config.autoStart = Boolean(enabled);
+    saveConfig({ autoStart: config.autoStart });
+    applyLoginItem();
+  });
+  ipcMain.handle('settings:getSilentStart', () => Boolean(config.silentStart));
+  ipcMain.on('settings:setSilentStart', (_e, enabled) => {
+    config.silentStart = Boolean(enabled);
+    saveConfig({ silentStart: config.silentStart });
+    applyLoginItem();
   });
 });
+
+// 测试钩子：仅供 scripts/smoke.js 驱动内部状态，Electron 运行时不会使用。
+module.exports = { showMainWindow, destroyMainWindow, timer };
 
 app.on('window-all-closed', (e) => { e.preventDefault(); }); // keep running in tray
 

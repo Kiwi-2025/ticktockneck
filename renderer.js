@@ -43,5 +43,21 @@ restInput.addEventListener('change', () =>
   window.api.setTimes({ activityMinutes: Number(activityInput.value), restMinutes: Number(restInput.value) }));
 
 const autoStartInput = document.getElementById('autoStartInput');
-window.api.getAutostart().then((on) => { autoStartInput.checked = on; });
-autoStartInput.addEventListener('change', () => window.api.setAutostart(autoStartInput.checked));
+const silentStartInput = document.getElementById('silentStartInput');
+
+// "仅驻留托盘"只有在开了开机自启时才有意义，自启关掉时置灰。
+function syncSilentEnabled() {
+  silentStartInput.disabled = !autoStartInput.checked;
+}
+
+window.api.getAutostart().then((on) => {
+  autoStartInput.checked = on;
+  syncSilentEnabled();
+});
+autoStartInput.addEventListener('change', () => {
+  syncSilentEnabled();
+  window.api.setAutostart(autoStartInput.checked);
+});
+
+window.api.getSilentStart().then((on) => { silentStartInput.checked = on; });
+silentStartInput.addEventListener('change', () => window.api.setSilentStart(silentStartInput.checked));
