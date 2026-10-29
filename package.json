@@ -1,6 +1,6 @@
 {
   "name": "ticktockneck",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Neck-activity reminder (pomodoro-style)",
   "main": "main.js",
   "scripts": {
