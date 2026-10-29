@@ -6,7 +6,7 @@
 // 尽量不打扰：窗口用真实路径开关、不反复弹窗；休息阶段靠把计时器快进
 // 触发，不真的等一分钟。
 require('../main.js');
-const { showMainWindow, timer } = require('../main.js');
+const { showMainWindow, timer, isMainWindowPainted } = require('../main.js');
 const { app, BrowserWindow, Menu } = require('electron');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -39,6 +39,7 @@ app.whenReady().then(async () => {
     const wins = BrowserWindow.getAllWindows();
     check('tray click creates and shows the window', wins.length === 1 && wins[0].isVisible(),
       `windows=${wins.length}`);
+    check('window is shown only after its first paint', isMainWindowPainted());
     if (wins.length) {
       const heading = await wins[0].webContents.executeJavaScript(`document.querySelector('h1').textContent`);
       check('window content rendered', String(heading).includes('脖子'), String(heading));
@@ -87,6 +88,7 @@ app.whenReady().then(async () => {
   await sleep(2000);
   win = BrowserWindow.getAllWindows()[0];
   check('window recreated on demand', !!win && win.isVisible());
+  check('recreated window painted before reveal', isMainWindowPainted());
   const after = await clock();
   // 倒计时是 ceil 取整显示的，比较时留 1.5 秒的量化误差
   const elapsed = (Date.now() - t0) / 1000;
